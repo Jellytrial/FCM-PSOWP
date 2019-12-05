@@ -1,9 +1,14 @@
-'''Particle component for PSO'''
+'''Particle component for FPSO
+1. cal cluster center
+2. cal L1fcm objective fuc J
+3. set pbest and pworst
+4. update velocity of each particle
+5. update position(membership) of each particle'''
 
 
 import numpy as np
 
-from fuzzyc import FCM, _obj_func
+from fuzzyc_l1 import FCM_L1, _obj_func
 
 
 def fcm_obj_func(dataSet, U, centroids, c, m):
@@ -13,8 +18,8 @@ def fcm_obj_func(dataSet, U, centroids, c, m):
     # print((dataSet.shape, centroids.shape))
     for k in range(n):
         for i in range(c):
-            distance[k, i] = np.linalg.norm(dataSet[k] - centroids[i])
-            J += (U[k, i] ** m) * (distance[k, i] ** 2)
+            distance[k, i] = np.sum(np.abs(dataSet[k] - centroids[i]))
+            J += (U[k, i] ** m) * distance[k, i]
     return J
 
 class Single_Particle:
@@ -26,11 +31,8 @@ class Single_Particle:
                  c1: float = 2.0,
                  c2: float = 2.0):
         global fcm
-        fcm = FCM(n_cluster=n_cluster, m=2)
+        fcm = FCM_L1(n_cluster=n_cluster, m=2)
         fcm.fit(data)
-
-        self.membership = fcm._init_membership(data)  # fcm.U.copy()
-        print('initial membership', self.membership)
 
         # initialize constants
         self._w = w
@@ -40,18 +42,25 @@ class Single_Particle:
         self.r2 = np.random.uniform()
         self.r3 = np.random.normal(0, 1)
         self.r4 = np.random.normal(0, 1)
+
         # print(self.r1, self.r2, self.r3, self.r4)
         self.n_cluster = n_cluster
 
         # initialize particle
-        self.centroids = fcm._cal_center(data, self.membership) # fcm.center.copy()
-        print('initial center', self.centroids)
+        self.membership = fcm._init_membership(data)  # fcm.U.copy()
+        print('initial membership of each particle:', self.membership)
+
         self.pbest_position = self.membership.copy()
         # print('initial pbest position:', self.pbest_position)
         self.pworst_position = self.membership.copy()
-        self.best_fitness = fcm_obj_func(data, self.membership, self.centroids, self.n_cluster, 2)
-        self.worst_fitness = fcm_obj_func(data, self.membership, self.centroids, self.n_cluster, 2)
+
+        self.centroids = fcm._cal_center(data, self.membership)  # fcm.center.copy()
+        print('initial center of each particle:', self.centroids)
+
+        self.best_fitness = fcm_obj_func(data, self.pbest_position, self.centroids, self.n_cluster, 2)
+        self.worst_fitness = fcm_obj_func(data, self.pworst_position, self.centroids, self.n_cluster, 2)
         print('initial pbest fitness = J:', self.best_fitness)
+        print('initial pworst fitness = J:', self.worst_fitness)
 
         self.velocity = np.zeros_like(self.membership)
 
@@ -80,9 +89,11 @@ class Single_Particle:
                             self.r4 * (gworst_position - self.membership)
 
          self.velocity = v_old + cognitive_component + social_component
+
+         return self
          # print('velocity:', self.velocity)
 
-# update the solution position and normalize membership
+# update the solution position and normalize membership by FCM
     def _update_membership(self, data):
         n = data.shape[0]
         new_membership = self.membership + self.velocity
@@ -90,36 +101,46 @@ class Single_Particle:
 
         # when u_ki<0, make it = 0
         for k in range(n):
-            #mini = np.min(new_membership[k])
             for i in range(self.n_cluster):
-                #new_membership[k, i] -= mini
                 if new_membership[k, i] <= 0:
                     new_membership[k, i] = 0
-        #print('positive U:', new_membership)
+
+        zero_list = np.zeros((1, self.n_cluster))
+        for k in range(n):
+            if (new_membership[k, :] == zero_list).all():
+                # print('k:', k)
+                new_membership[k, :] = np.random.uniform(0, 1, (1, self.n_cluster))
+            else:
+                pass
+
+        # print('positive U:', new_membership)
 
         # normalize membership
+        new_u = np.empty_like(self.membership)
         for k in range(n):
             summation = np.sum(new_membership[k, :])
             #print('summation:', summation)
-            self.membership[k] = new_membership[k] / summation
-        # print('normal U:', self.membership)
+            new_u[k] = new_membership[k] / summation
+        #print('normal U:', self.membership)
 
-        #for _ in range(10):
-        self.centroids = fcm._cal_center(data, self.membership)
-        self.membership = fcm._update_membership(data, self.centroids)
-        new_fitness = fcm_obj_func(data, self.membership, self.centroids, self.n_cluster, 2)
+        new_centroids = fcm._cal_center(data, new_u)
+        update_membership = fcm._update_membership(data, new_centroids)
+
+        new_fitness = fcm_obj_func(data, update_membership, new_centroids, self.n_cluster, 2)
 
         if new_fitness < self.best_fitness:
             self.best_fitness = new_fitness
-            self.pbest_position = self.membership.copy()
+            self.pbest_position = update_membership.copy()
         if new_fitness > self.worst_fitness:
             self.worst_fitness = new_fitness
-            self.pworst_position = self.membership.copy()
+            self.pworst_position = update_membership.copy()
 
         # print('pbest fitness', self.best_fitness)
-
-        # print('updated pworst:', self.pworst_position)
         # print('updated pbest:', self.pbest_position)
+
+        # print('pworst fitness', self.worst_fitness)
+        # print('updated pworst:', self.pworst_position)
+
         return self
 
 

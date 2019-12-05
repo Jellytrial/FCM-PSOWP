@@ -1,6 +1,4 @@
-'''Particle Swarm Optimized Clustering
-Optimizing centroid using K-Means style. 
-In hybrid mode will use K-Means to seed first particle's centroid'''
+'''FPSO'''
 
 import numpy as np
 import pandas as pd
@@ -8,7 +6,7 @@ import matplotlib.pyplot as plt
 np.seterr(divide='ignore', invalid='ignore')
 
 from single_particle import Single_Particle, fcm_obj_func
-from fuzzyc import FCM
+from fuzzyc_l1 import FCM_L1
 
 class PSO:
     def __init__(self,
@@ -16,10 +14,10 @@ class PSO:
                  n_particle: int,
                  data,
                  hybrid: bool = True,
-                 max_iter: int = 150,
-                 print_debug: int = 10):
+                 max_iter: int = 15,
+                 print_debug: int = 1):
         global fcm
-        fcm = FCM(n_cluster=n_cluster, m=2)
+        fcm = FCM_L1(n_cluster=n_cluster, m=2)
 
         self.n_cluster = n_cluster
         self.n_particle = n_particle
@@ -64,30 +62,45 @@ class PSO:
         print('Initial global best fitness:', self.gbest_fitness)
         print('Initial global worst fitness:', self.gworst_fitness)
         history = []
-        for i in range(self.max_iter):
-            for particle in self.particles:
-                particle.update(self.gbest_position, self.gworst_position, self.data)
-                #print(i, particle.best_score, self.gbest_score)
 
+        for i in range(self.max_iter):
+            # FPSO
             for particle in self.particles:
+
+                # particle.update(self.gbest_position, self.gworst_position, self.data)
+
+                # print('in pso run pbest:', particle.pbest_position)
+                # print('in pso run p fitness', particle.best_fitness)
+                # set gbest and gworst
                 if particle.best_fitness < self.gbest_fitness:
-                    self.gbest_position = particle.pbest_position.copy()
+                    self.gbest_position = particle.pbest_position.copy()  # gbest
                     self.gbest_fitness = particle.best_fitness
                 if particle.worst_fitness > self.gworst_fitness:
-                    self.gworst_position = particle.pworst_position.copy()
+                    self.gworst_position = particle.pworst_position.copy()  # gworst
                     self.gworst_fitness = particle.worst_fitness
 
-            # FCM
-            #for _ in range(10):
-            #    self.final_centroid = fcm._cal_center(self.data, self.gbest_position)
-            #    self.gbest_position = fcm._update_membership(self.data, self.final_centroid)
-            #    self.gbest_fitness = fcm_obj_func(self.data, self.gbest_position, self.final_centroid, self.n_cluster, 2)
+                particle.update(self.gbest_position, self.gworst_position, self.data)
+
+                # print(i, particle.best_score, self.gbest_score)
+                self.final_centroid = fcm._cal_center(self.data, self.gbest_position)
+                self.gbest_position = fcm._update_membership(self.data, self.final_centroid)
 
             history.append(self.gbest_fitness)
 
             if i % self.print_debug == 0:
-                print('Iteration {:04d}/{:04d} current gbest fitness {:.13f} gworst fitness {:.13f}'.format(
-                    i + 1, self.max_iter, self.gbest_fitness, self.gworst_fitness))
+                print('In Iteration {:04d}/{:04d} current gbest fitness {:.13f} gworst fitness {:.13f}'.format(
+
+                        i + 1, self.max_iter, self.gbest_fitness, self.gworst_fitness))
+
+        #byfcm_membership = self.gbest_position.copy()
+        #print('byfcm_membership:', byfcm_membership)
+        #for _ in range(10):
+        #    byfcm_centroid = fcm._cal_center(self.data, byfcm_membership)
+        #    byfcm_membership = fcm._update_membership(self.data, byfcm_centroid)
+
+        #self.gbest_position = byfcm_membership.copy()
+        #self.final_centroid = byfcm_centroid.copy()
+        #self.gbest_fitness = fcm_obj_func(self.data, self.gbest_position, self.final_centroid, self.n_cluster, 2)
 
         self.final_centroid = fcm._cal_center(self.data, self.gbest_position)
         self.cluster = np.argmax(self.gbest_position, axis=1)
@@ -96,13 +109,14 @@ class PSO:
         print('Final membership:', self.gbest_position)
         print('Final centroid', self.final_centroid)
         print('cluster:', self.cluster)
+        # print(self.cluster.shape)
 
         # show fitness convergence
         plt.plot(history)
         plt.plot(self.max_iter)
         plt.title('convergence curve')
         plt.ylabel('fitness')
-        plt.ylim(0, 580)
+        plt.ylim(700,1400 )
         plt.xlabel('iteration')
         plt.show()
 
@@ -115,6 +129,7 @@ class PSO:
         mark = ['o', 'o', 'o', 'o', '^', '+', 's', 'd', '<', 'p']
         color = ['r', 'b', 'g', 'm', 'c', 'y']
         n, m = self.data.shape
+
         for i in range(n):
             markIndex = int(self.cluster[i])
             plt.scatter(self.data[i, 0], self.data[i, 1], c=color[markIndex], marker=mark[markIndex], alpha = 0.6)
